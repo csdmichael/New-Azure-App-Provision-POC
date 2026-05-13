@@ -78,6 +78,9 @@ on:
         description: Enterprise inventory entry added for this request
         value: ${{ jobs.provision.outputs.inventory_entry }}
 
+permissions:
+  contents: read
+
 jobs:
   provision:
     name: Provision enterprise Azure application resources
@@ -101,6 +104,7 @@ jobs:
           import json
           import os
           import re
+          import hashlib
           from datetime import datetime, timezone
           from pathlib import Path
 
@@ -115,7 +119,9 @@ jobs:
           env_entries = []
           for env in environments:
             rg_name = f"rg-{app_slug}-{env}"
-            keyvault_name = f"kv{app_slug.replace('-', '')[:14]}{env}"[:24]
+            keyvault_hash = hashlib.sha1(f"{app_slug}-{env}".encode("utf-8")).hexdigest()[:4]
+            keyvault_prefix = app_slug.replace('-', '')[:10]
+            keyvault_name = f"kv{keyvault_prefix}{keyvault_hash}{env}"[:24]
             env_entries.append({
               "environment": env,
               "azureRegion": region,
@@ -231,23 +237,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for row in $(jq -c '.environments[]' artifacts/consolidated-manifest.json); do
-            env_name=$(echo "$row" | jq -r '.environment')
-            region=$(echo "$row" | jq -r '.azureRegion')
-            rg_name=$(echo "$row" | jq -r '.resourceGroupName')
-            kv_name=$(echo "$row" | jq -r '.keyVaultName')
-            app_reg_name=$(echo "$row" | jq -r '.appRegistrationName')
-            cost_center=$(echo "$row" | jq -r '.tags.costCenter')
-            technical_owner=$(echo "$row" | jq -r '.tags.technicalOwner')
-            business_owner=$(echo "$row" | jq -r '.tags.businessOwner')
-            tier=$(echo "$row" | jq -r '.tags.tier')
-            severity=$(echo "$row" | jq -r '.tags.severity')
-            confidentiality=$(echo "$row" | jq -r '.tags.confidentiality')
-            platform=$(echo "$row" | jq -r '.tags.platform')
-            business_unit=$(echo "$row" | jq -r '.tags.businessUnit')
-            app_name=$(echo "$row" | jq -r '.tags.applicationName')
-            manifest_json=$(echo "$row" | jq -c '.manifest')
-
+          jq -r '.environments[] | [
+            .environment,
+            .azureRegion,
+            .resourceGroupName,
+            .keyVaultName,
+            .appRegistrationName,
+            .tags.costCenter,
+            .tags.technicalOwner,
+            .tags.businessOwner,
+            .tags.tier,
+            .tags.severity,
+            .tags.confidentiality,
+            .tags.platform,
+            .tags.businessUnit,
+            .tags.applicationName,
+            (.manifest | tojson)
+          ] | @tsv' artifacts/consolidated-manifest.json | while IFS=$'\t' read -r env_name region rg_name kv_name app_reg_name cost_center technical_owner business_owner tier severity confidentiality platform business_unit app_name manifest_json; do
             az group create \
               --name "$rg_name" \
               --location "$region" \

@@ -60,6 +60,7 @@ on:
 jobs:
   submit-enterprise-request:
     name: Submit enterprise provisioning request
+    permissions: {}
     uses: ./.github/workflows/enterprise-provision-azure-app.yml
     with:
       application_name: ${{ inputs.application_name }}
@@ -83,6 +84,7 @@ jobs:
     name: Publish consolidated provisioning summary
     runs-on: ubuntu-latest
     needs: submit-enterprise-request
+    permissions: {}
     steps:
       - name: Create incident response summary
         shell: bash
