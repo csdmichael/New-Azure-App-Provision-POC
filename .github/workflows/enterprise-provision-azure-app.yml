@@ -119,9 +119,11 @@ jobs:
           env_entries = []
           for env in environments:
             rg_name = f"rg-{app_slug}-{env}"
-            keyvault_hash = hashlib.sha1(f"{app_slug}-{env}".encode("utf-8")).hexdigest()[:4]
-            keyvault_prefix = app_slug.replace('-', '')[:10]
-            keyvault_name = f"kv{keyvault_prefix}{keyvault_hash}{env}"[:24]
+            keyvault_hash = hashlib.sha256(f"{app_slug}-{env}".encode("utf-8")).hexdigest()[:4]
+            keyvault_env = re.sub(r"[^a-z0-9]", "", env)[:4]
+            keyvault_prefix_max_length = 24 - len("kv") - len(keyvault_hash) - len(keyvault_env)
+            keyvault_prefix = app_slug.replace("-", "")[:keyvault_prefix_max_length]
+            keyvault_name = f"kv{keyvault_prefix}{keyvault_hash}{keyvault_env}"
             env_entries.append({
               "environment": env,
               "azureRegion": region,
