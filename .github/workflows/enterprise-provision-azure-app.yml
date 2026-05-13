@@ -239,6 +239,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          provisioned_app_registrations_file="artifacts/provisioned-app-registrations.ndjson"
+          : > "$provisioned_app_registrations_file"
           jq -r '.environments[] | [
             .environment,
             .azureRegion,
@@ -288,7 +290,9 @@ jobs:
 
             app_id=$(az ad app create --display-name "$app_reg_name" --query appId --output tsv)
             az ad app update --id "$app_id" --notes "$manifest_json" --output none
+            jq -nc --arg environment "$env_name" --arg name "$app_reg_name" --arg appId "$app_id" '{environment: $environment, name: $name, appId: $appId}' >> "$provisioned_app_registrations_file"
           done
+          jq -s '.' "$provisioned_app_registrations_file" > artifacts/app-registrations.json
 
       - name: Simulation mode when Azure credentials are not provided
         if: ${{ !(secrets.azure_client_id != '' && secrets.azure_tenant_id != '' && secrets.azure_subscription_id != '') }}
