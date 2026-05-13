@@ -1,0 +1,110 @@
+name: Sample Consumer - Incident Triggered Azure App Request
+
+on:
+  workflow_dispatch:
+    inputs:
+      incident_id:
+        description: Incident ticket number from incident management
+        required: true
+        type: string
+      application_name:
+        description: Application name
+        required: true
+        type: string
+      business_objective:
+        description: Business objective
+        required: true
+        type: string
+      app_tier:
+        description: Application tier for confidentiality and severity
+        required: true
+        type: string
+      cost_center:
+        description: Cost center
+        required: true
+        type: string
+      business_owner:
+        description: Business owner
+        required: true
+        type: string
+      technical_owner:
+        description: Technical owner
+        required: true
+        type: string
+      azure_region:
+        description: Azure region
+        required: false
+        default: eastus
+        type: string
+      platform:
+        description: Platform
+        required: false
+        default: Azure
+        type: string
+      business_unit:
+        description: Business unit
+        required: false
+        default: CorporateIT
+        type: string
+      severity:
+        description: Severity
+        required: false
+        default: high
+        type: string
+      confidentiality:
+        description: Confidentiality
+        required: false
+        default: confidential
+        type: string
+
+jobs:
+  submit-enterprise-request:
+    name: Submit enterprise provisioning request
+    uses: ./.github/workflows/enterprise-provision-azure-app.yml
+    with:
+      application_name: ${{ inputs.application_name }}
+      business_objective: ${{ inputs.business_objective }}
+      app_tier: ${{ inputs.app_tier }}
+      cost_center: ${{ inputs.cost_center }}
+      business_owner: ${{ inputs.business_owner }}
+      technical_owner: ${{ inputs.technical_owner }}
+      azure_region: ${{ inputs.azure_region }}
+      platform: ${{ inputs.platform }}
+      business_unit: ${{ inputs.business_unit }}
+      severity: ${{ inputs.severity }}
+      confidentiality: ${{ inputs.confidentiality }}
+      environments: dev,test,prod
+    secrets:
+      azure_client_id: ${{ secrets.AZURE_CLIENT_ID }}
+      azure_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
+      azure_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+  publish-request-summary:
+    name: Publish consolidated provisioning summary
+    runs-on: ubuntu-latest
+    needs: submit-enterprise-request
+    steps:
+      - name: Create incident response summary
+        shell: bash
+        run: |
+          {
+            echo "## Incident Request Completed"
+            echo "- Incident ID: ${{ inputs.incident_id }}"
+            echo "- Application: ${{ inputs.application_name }}"
+            echo "- Business Objective: ${{ inputs.business_objective }}"
+            echo ""
+            echo "### Resource Groups (dev/test/prod)"
+            echo '```json'
+            echo '${{ needs.submit-enterprise-request.outputs.resource_groups }}'
+            echo '```'
+            echo ""
+            echo "### App Registrations (dev/test/prod)"
+            echo '```json'
+            echo '${{ needs.submit-enterprise-request.outputs.app_registrations }}'
+            echo '```'
+            echo ""
+            echo "### Consolidated Manifest"
+            echo '```json'
+            echo '${{ needs.submit-enterprise-request.outputs.consolidated_manifest }}'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

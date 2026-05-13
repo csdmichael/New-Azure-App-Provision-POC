@@ -1,0 +1,313 @@
+name: Enterprise Azure App Provisioning
+
+on:
+  workflow_call:
+    inputs:
+      application_name:
+        description: Application name
+        required: true
+        type: string
+      business_objective:
+        description: Business objective
+        required: true
+        type: string
+      app_tier:
+        description: Application tier for confidentiality and severity handling
+        required: true
+        type: string
+      cost_center:
+        description: Cost center for chargeback
+        required: true
+        type: string
+      business_owner:
+        description: Business owner
+        required: true
+        type: string
+      technical_owner:
+        description: Technical owner
+        required: true
+        type: string
+      azure_region:
+        description: Azure region for deployment
+        required: false
+        default: eastus
+        type: string
+      platform:
+        description: Platform
+        required: false
+        default: Azure
+        type: string
+      business_unit:
+        description: Business unit
+        required: false
+        default: SharedServices
+        type: string
+      severity:
+        description: Severity classification
+        required: false
+        default: high
+        type: string
+      confidentiality:
+        description: Confidentiality classification
+        required: false
+        default: confidential
+        type: string
+      environments:
+        description: Comma separated environments
+        required: false
+        default: dev,test,prod
+        type: string
+    secrets:
+      azure_client_id:
+        required: false
+      azure_tenant_id:
+        required: false
+      azure_subscription_id:
+        required: false
+    outputs:
+      resource_groups:
+        description: Resource groups by environment
+        value: ${{ jobs.provision.outputs.resource_groups }}
+      app_registrations:
+        description: App registrations by environment
+        value: ${{ jobs.provision.outputs.app_registrations }}
+      consolidated_manifest:
+        description: Consolidated manifest with app and environment metadata
+        value: ${{ jobs.provision.outputs.consolidated_manifest }}
+      inventory_entry:
+        description: Enterprise inventory entry added for this request
+        value: ${{ jobs.provision.outputs.inventory_entry }}
+
+jobs:
+  provision:
+    name: Provision enterprise Azure application resources
+    runs-on: ubuntu-latest
+    outputs:
+      resource_groups: ${{ steps.export_outputs.outputs.resource_groups }}
+      app_registrations: ${{ steps.export_outputs.outputs.app_registrations }}
+      consolidated_manifest: ${{ steps.export_outputs.outputs.consolidated_manifest }}
+      inventory_entry: ${{ steps.export_outputs.outputs.inventory_entry }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build environment manifests and inventory snapshot
+        id: build_manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          def slugify(value: str) -> str:
+            return re.sub(r"[^a-z0-9-]", "-", value.lower().replace(" ", "-")).strip("-")
+
+          environments = [env.strip().lower() for env in os.environ["INPUT_ENVIRONMENTS"].split(",") if env.strip()]
+          app_name = os.environ["INPUT_APPLICATION_NAME"]
+          app_slug = slugify(app_name)
+          region = os.environ["INPUT_AZURE_REGION"]
+
+          env_entries = []
+          for env in environments:
+            rg_name = f"rg-{app_slug}-{env}"
+            keyvault_name = f"kv{app_slug.replace('-', '')[:14]}{env}"[:24]
+            env_entries.append({
+              "environment": env,
+              "azureRegion": region,
+              "resourceGroupName": rg_name,
+              "keyVaultName": keyvault_name,
+              "appRegistrationName": f"{app_name}-{env}",
+              "manifest": {
+                "applicationName": app_name,
+                "businessObjective": os.environ["INPUT_BUSINESS_OBJECTIVE"],
+                "appTier": os.environ["INPUT_APP_TIER"],
+                "costCenter": os.environ["INPUT_COST_CENTER"],
+                "technicalOwner": os.environ["INPUT_TECHNICAL_OWNER"],
+                "businessOwner": os.environ["INPUT_BUSINESS_OWNER"],
+                "environment": env,
+                "azureRegion": region,
+                "platform": os.environ["INPUT_PLATFORM"],
+                "businessUnit": os.environ["INPUT_BUSINESS_UNIT"],
+                "severity": os.environ["INPUT_SEVERITY"],
+                "confidentiality": os.environ["INPUT_CONFIDENTIALITY"],
+              },
+              "tags": {
+                "applicationName": app_name,
+                "costCenter": os.environ["INPUT_COST_CENTER"],
+                "environment": env,
+                "technicalOwner": os.environ["INPUT_TECHNICAL_OWNER"],
+                "businessOwner": os.environ["INPUT_BUSINESS_OWNER"],
+                "tier": os.environ["INPUT_APP_TIER"],
+                "businessUnit": os.environ["INPUT_BUSINESS_UNIT"],
+                "platform": os.environ["INPUT_PLATFORM"],
+                "severity": os.environ["INPUT_SEVERITY"],
+                "confidentiality": os.environ["INPUT_CONFIDENTIALITY"],
+              }
+            })
+
+          request_timestamp = datetime.now(timezone.utc).isoformat()
+          inventory_entry = {
+            "applicationName": app_name,
+            "businessObjective": os.environ["INPUT_BUSINESS_OBJECTIVE"],
+            "costCenter": os.environ["INPUT_COST_CENTER"],
+            "technicalOwner": os.environ["INPUT_TECHNICAL_OWNER"],
+            "businessOwner": os.environ["INPUT_BUSINESS_OWNER"],
+            "tier": os.environ["INPUT_APP_TIER"],
+            "platform": os.environ["INPUT_PLATFORM"],
+            "businessUnit": os.environ["INPUT_BUSINESS_UNIT"],
+            "severity": os.environ["INPUT_SEVERITY"],
+            "confidentiality": os.environ["INPUT_CONFIDENTIALITY"],
+            "environments": [entry["environment"] for entry in env_entries],
+            "requestedAtUtc": request_timestamp
+          }
+
+          consolidated = {
+            "requestId": f"app-{app_slug}-{int(datetime.now(timezone.utc).timestamp())}",
+            "applicationName": app_name,
+            "businessObjective": os.environ["INPUT_BUSINESS_OBJECTIVE"],
+            "technicalOwner": os.environ["INPUT_TECHNICAL_OWNER"],
+            "businessOwner": os.environ["INPUT_BUSINESS_OWNER"],
+            "costCenter": os.environ["INPUT_COST_CENTER"],
+            "platform": os.environ["INPUT_PLATFORM"],
+            "businessUnit": os.environ["INPUT_BUSINESS_UNIT"],
+            "appTier": os.environ["INPUT_APP_TIER"],
+            "severity": os.environ["INPUT_SEVERITY"],
+            "confidentiality": os.environ["INPUT_CONFIDENTIALITY"],
+            "environments": env_entries
+          }
+
+          inventory_path = Path("inventory/applications.json")
+          if inventory_path.exists():
+            inventory = json.loads(inventory_path.read_text())
+          else:
+            inventory = []
+          inventory.append(inventory_entry)
+
+          Path("artifacts/consolidated-manifest.json").write_text(json.dumps(consolidated, indent=2))
+          Path("artifacts/inventory-entry.json").write_text(json.dumps(inventory_entry, indent=2))
+          Path("artifacts/enterprise-inventory-updated.json").write_text(json.dumps(inventory, indent=2))
+
+          resource_groups = [{
+            "environment": env["environment"],
+            "name": env["resourceGroupName"],
+            "region": env["azureRegion"]
+          } for env in env_entries]
+          app_regs = [{
+            "environment": env["environment"],
+            "name": env["appRegistrationName"]
+          } for env in env_entries]
+          Path("artifacts/resource-groups.json").write_text(json.dumps(resource_groups, indent=2))
+          Path("artifacts/app-registrations.json").write_text(json.dumps(app_regs, indent=2))
+          PY
+        env:
+          INPUT_APPLICATION_NAME: ${{ inputs.application_name }}
+          INPUT_BUSINESS_OBJECTIVE: ${{ inputs.business_objective }}
+          INPUT_APP_TIER: ${{ inputs.app_tier }}
+          INPUT_COST_CENTER: ${{ inputs.cost_center }}
+          INPUT_BUSINESS_OWNER: ${{ inputs.business_owner }}
+          INPUT_TECHNICAL_OWNER: ${{ inputs.technical_owner }}
+          INPUT_AZURE_REGION: ${{ inputs.azure_region }}
+          INPUT_PLATFORM: ${{ inputs.platform }}
+          INPUT_BUSINESS_UNIT: ${{ inputs.business_unit }}
+          INPUT_SEVERITY: ${{ inputs.severity }}
+          INPUT_CONFIDENTIALITY: ${{ inputs.confidentiality }}
+          INPUT_ENVIRONMENTS: ${{ inputs.environments }}
+
+      - name: Azure login
+        if: ${{ secrets.azure_client_id != '' && secrets.azure_tenant_id != '' && secrets.azure_subscription_id != '' }}
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.azure_client_id }}
+          tenant-id: ${{ secrets.azure_tenant_id }}
+          subscription-id: ${{ secrets.azure_subscription_id }}
+
+      - name: Provision Azure resources and Entra app registrations
+        if: ${{ secrets.azure_client_id != '' && secrets.azure_tenant_id != '' && secrets.azure_subscription_id != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for row in $(jq -c '.environments[]' artifacts/consolidated-manifest.json); do
+            env_name=$(echo "$row" | jq -r '.environment')
+            region=$(echo "$row" | jq -r '.azureRegion')
+            rg_name=$(echo "$row" | jq -r '.resourceGroupName')
+            kv_name=$(echo "$row" | jq -r '.keyVaultName')
+            app_reg_name=$(echo "$row" | jq -r '.appRegistrationName')
+            cost_center=$(echo "$row" | jq -r '.tags.costCenter')
+            technical_owner=$(echo "$row" | jq -r '.tags.technicalOwner')
+            business_owner=$(echo "$row" | jq -r '.tags.businessOwner')
+            tier=$(echo "$row" | jq -r '.tags.tier')
+            severity=$(echo "$row" | jq -r '.tags.severity')
+            confidentiality=$(echo "$row" | jq -r '.tags.confidentiality')
+            platform=$(echo "$row" | jq -r '.tags.platform')
+            business_unit=$(echo "$row" | jq -r '.tags.businessUnit')
+            app_name=$(echo "$row" | jq -r '.tags.applicationName')
+            manifest_json=$(echo "$row" | jq -c '.manifest')
+
+            az group create \
+              --name "$rg_name" \
+              --location "$region" \
+              --tags \
+                applicationName="$app_name" \
+                costCenter="$cost_center" \
+                environment="$env_name" \
+                technicalOwner="$technical_owner" \
+                businessOwner="$business_owner" \
+                tier="$tier" \
+                severity="$severity" \
+                confidentiality="$confidentiality" \
+                platform="$platform" \
+                businessUnit="$business_unit" \
+              --output none
+
+            az keyvault create \
+              --name "$kv_name" \
+              --resource-group "$rg_name" \
+              --location "$region" \
+              --tags \
+                applicationName="$app_name" \
+                costCenter="$cost_center" \
+                environment="$env_name" \
+                technicalOwner="$technical_owner" \
+                tier="$tier" \
+                severity="$severity" \
+                confidentiality="$confidentiality" \
+              --output none
+
+            app_id=$(az ad app create --display-name "$app_reg_name" --query appId --output tsv)
+            az ad app update --id "$app_id" --notes "$manifest_json" --output none
+          done
+
+      - name: Simulation mode when Azure credentials are not provided
+        if: ${{ !(secrets.azure_client_id != '' && secrets.azure_tenant_id != '' && secrets.azure_subscription_id != '') }}
+        run: |
+          echo "Azure credentials not provided. Generated manifest and inventory artifacts in simulation mode." > artifacts/provisioning-mode.txt
+
+      - name: Export reusable workflow outputs
+        id: export_outputs
+        shell: bash
+        run: |
+          {
+            echo "resource_groups<<EOF"
+            cat artifacts/resource-groups.json
+            echo "EOF"
+            echo "app_registrations<<EOF"
+            cat artifacts/app-registrations.json
+            echo "EOF"
+            echo "consolidated_manifest<<EOF"
+            cat artifacts/consolidated-manifest.json
+            echo "EOF"
+            echo "inventory_entry<<EOF"
+            cat artifacts/inventory-entry.json
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload provisioning artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: enterprise-provisioning-artifacts
+          path: artifacts/

@@ -1,0 +1,19 @@
+{
+  "incidentId": "INC-100245",
+  "applicationName": "Customer Insights Portal",
+  "businessObjective": "Enable customer-facing analytics and insights",
+  "appTier": "tier-1",
+  "costCenter": "CC-4821",
+  "businessOwner": "alex.business@contoso.com",
+  "technicalOwner": "sam.technical@contoso.com",
+  "azureRegion": "eastus",
+  "platform": "Azure",
+  "businessUnit": "SalesAndMarketing",
+  "severity": "high",
+  "confidentiality": "confidential",
+  "environments": [
+    "dev",
+    "test",
+    "prod"
+  ]
+}

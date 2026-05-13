@@ -1,0 +1,13 @@
+This project demonstrates how an Enterprise can expose a centralized GitHub Workflow framework with parameters for application name & business objective, application tier for confidentiality and severity, business owner and technical owner to provision new Applications on Azure that have a separate resource group by environment and an App Registration in Entra per environment where manifest has environment name, cost center and other parameters to help chargeback cost by cost center and user.
+
+Create an enterprise GitHub workflow that can be called from project based GitHub workflows to provision the following Azure resources:
+- An app registration, a resource group per environment (dev, test, prod)
+- App registration should have manifest that has cost center, environment, technical owner, business owner, application name, app tier for security and severity, region of deployment on azure and other relevant information.
+- Resource group should have a keyvault and tagged by cost center, environment, technical owner, tier and other relevant tags
+
+Add the new app information to the enterprise inventory of applications.
+Create a sample consumer project team submitting a request via an incident management system which triggers this enterprise workflow to provision new applications (dev, test, prod) and it sends back the resource groups information for 3 environments and a consolidated manifest that has resource groups, their azure regions, app registrations, technical owner, business owner, cost center, platform and business unit, severity, confidentiality and other relevant information.
+
+Create a docs folder and add architecture diagram of multiple consumer project teams requesting to provision azure applications, process running to provision required applications and share back resource groups and app registrations per environment. Also, add prompts txt file that include this prompt.
+Create a readme file that describes this whole process with folder / project structure, sample consumers for enterprise GitHub workflow, display architecture diagram from docs folder.
+Add license file for Michael Yaacoub at Microsoft.
